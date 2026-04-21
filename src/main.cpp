@@ -10,7 +10,6 @@ int main() {
 
     // ingest CSV data
     compass.ParseCSV("data/edges.csv", "data/classes.csv");
-
     // the below is example code for parsing commandline input
     int no_of_lines;
     string command;
