@@ -86,7 +86,7 @@ bool CampusCompass::ParseClasses(const string& classes_filepath) {
         endTime += stoi(timePart);
 
         //map ClassCode to start and end time
-        this->times[parts[0]].push_back({startTime, endTime});
+        this->times[parts[0]] = {startTime, endTime};
     }
 
     classes_csv.close();
@@ -154,8 +154,12 @@ int CampusCompass::removeClass(string CLASSCODE) {
     if (!(classes.count(CLASSCODE))) return -1;
     // classes.erase(CLASSCODE);
     int count = 0;
-    for (auto s : students) {
-        if (dropClass(s.first, CLASSCODE)) count += 1;
+
+    vector<string> studentIDS;
+    for (auto s : students) studentIDS.push_back(s.second.id);
+
+    for (string s : studentIDS) {
+        if (dropClass(s, CLASSCODE)) count += 1;
     }
     return count;
 }
@@ -263,6 +267,7 @@ int CampusCompass::printStudentZone(string STUDENT_ID) {
     unordered_map<int,int> parents = info.second;
     queue<int> q;
     unordered_set<int> visited;
+    visited.insert(students[STUDENT_ID].residence);
     for (string course : students[STUDENT_ID].classes) {
         visited.insert(classes[course]);
         q.push(classes[course]);
@@ -270,23 +275,24 @@ int CampusCompass::printStudentZone(string STUDENT_ID) {
     while (!q.empty()) {
         int n = q.front();
         q.pop();
-        if (parents[n] != -1) {
+        if (parents[n] != -1 && !(visited.count(parents[n]))) {
             visited.insert(parents[n]);
             q.push(parents[n]);
         }
     }
-    priority_queue<pair<int, int>> edges;
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> edges;
     int weight = 0;
     edges.push({0, students[STUDENT_ID].residence});
     while (!edges.empty()) {
         pair<int, int> curr = edges.top();
         edges.pop();
+
+        if (visited.count(curr.second) == 0) continue;
+        visited.erase(curr.second);
         weight += curr.first;
 
         for (node n : graph[curr.second]) {
-            if (n.open && visited.count(n.id)) {
-                edges.push({n.weight, n.id});
-            }
+            if (n.open && visited.count(n.id)) edges.push({n.weight, n.id});
         }
     }
 
@@ -294,19 +300,236 @@ int CampusCompass::printStudentZone(string STUDENT_ID) {
 }
 
 bool CampusCompass::verifySchedule(string STUDENT_ID) {
-    return 0;
+    priority_queue<pair<int, string>, vector<pair<int, string>>, greater<pair<int, string>>> courses;
+
+    for (string c : students[STUDENT_ID].classes) {
+        courses.push({times[c].first, c});
+    }
+
+    if (courses.size() == 0) return false;
+
+    string lastClass = courses.top().second;
+    int last = classes[courses.top().second];
+    int time = times[courses.top().second].second;
+    courses.pop();
+
+    if (courses.size() == 0) return false;
+
+    cout << "Schedule Check for " << students[STUDENT_ID].name << ":" << endl;
+
+    while (!courses.empty()) {
+        pair<int, string> curr = courses.top();
+        courses.pop();
+
+        pair<unordered_map<int, int>, unordered_map<int, int>> info = djikstrasHelper(last);
+        unordered_map<int, int> dist = info.first;
+
+        if (dist.count(classes[curr.second]) && time + dist[classes[curr.second]] <= curr.first) cout << lastClass << " - " << curr.second << ": successful" << endl;
+        else cout << lastClass << " - " << curr.second << ": unsuccessful" << endl;
+
+            time = times[curr.second].second;
+            lastClass = curr.second;
+            last = classes[curr.second];
+    }
+
+    return true;
 }
 
 
+//returns true if course invalid
+bool checkCourseCode(string course) {
+    if (course.size() != 7) return true;
+    for (int i = 0; i < course.length(); i++) {
+        if (i < 3) {
+            if (!(isupper(course[i]))) return true;
+        } else {
+            if (!(isdigit(course[i]))) return true;
+        }
+    }
+    return false;
+}
 
+//returns true if name is invalid
+bool checkName(string name) {
+    for (char c : name) {
+        if (!(isalpha(c)) && c != ' ') return true;
+    }
+    return false;
+}
 
+//returns true if id is invalid
+bool checkID(string id) {
+    if (id.size() != 8) return true;
+    for (char c : id) {
+        if (!isdigit(c)) return true;
+    }
+    return false;
+}
 
+bool failure() {
+    cout << "unsuccessful" << endl;
+    return false;
+}
+
+bool success() {
+    cout << "successful" << endl;
+    return true;
+}
 
 
 bool CampusCompass::ParseCommand(const string &command) {
     // do whatever regex you need to parse validity
     // hint: return a boolean for validation when testing. For example:
-    bool is_valid = true; // replace with your actual validity checking
 
-    return is_valid;
+    stringstream stream(command);
+    string function;
+    stream >> function;
+
+    if (function == "insert") {
+        string STUDENT_NAME;
+        string STUDENT_ID;
+        int RESIDENCE_LOCATION_ID;
+        int n;
+
+        stream >> quoted(STUDENT_NAME) >> STUDENT_ID >> RESIDENCE_LOCATION_ID >> n;
+
+        if (stream.fail()) return failure();
+        if (checkName(STUDENT_NAME)) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID)) return failure();
+        if (locations.count(RESIDENCE_LOCATION_ID) == 0) return failure();
+        if (n > 6 || n < 1) return failure();
+
+        vector<string> courses;
+        for (int i = 0; i < n; i++) {
+            string temp;
+            stream >> temp;
+            if (checkCourseCode(temp)) return failure();
+            courses.push_back(temp);
+        }
+
+        if (stream.fail()) return failure();
+
+        if (insert(STUDENT_NAME, STUDENT_ID, RESIDENCE_LOCATION_ID, courses)) return success();
+        return failure();
+    } if (function == "remove") {
+        string STUDENT_ID;
+
+        stream >> STUDENT_ID;
+
+        if (stream.fail()) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID) == 0) return failure();
+
+        if (remove(STUDENT_ID)) return success();
+        return failure();
+    } if (function == "dropClass") {
+        string STUDENT_ID;
+        string CLASSCODE;
+        stream >> STUDENT_ID >> CLASSCODE;
+        if (stream.fail()) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID) == 0) return failure();
+        if (checkCourseCode(CLASSCODE)) return failure();
+
+        if (dropClass(STUDENT_ID, CLASSCODE)) return success();
+        return failure();
+    } if (function == "replaceClass") {
+        string STUDENT_ID;
+        string CLASSCODE1;
+        string CLASSCODE2;
+        stream >> STUDENT_ID >> CLASSCODE1 >> CLASSCODE2;
+        if (stream.fail()) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID) == 0) return failure();
+        if (checkCourseCode(CLASSCODE1)) return failure();
+        if (checkCourseCode(CLASSCODE2)) return failure();
+
+        if (replaceClass(STUDENT_ID, CLASSCODE1, CLASSCODE2)) return success();
+        return failure();
+    } if (function == "removeClass") {
+        string CLASSCODE;
+        stream >> CLASSCODE;
+        if (stream.fail()) return failure();
+        if (checkCourseCode(CLASSCODE)) return failure();
+
+        int count = removeClass( CLASSCODE);
+
+        if ( count == -1) return failure();
+
+        cout << count << endl;
+        return true;
+    } if (function == "toggleEdgesClosure") {
+        int n;
+        stream >> n;
+        if (stream.fail()) return failure();
+        if (n < 1) return failure();
+
+        vector<pair<int, int>> edges;
+        for (int i = 0; i < n; i++) {
+            int a;
+            int b;
+            stream >> a >> b;
+            if (stream.fail()) return failure();
+            if (locations.count(a) == 0) return failure();
+            if (locations.count(b) == 0) return failure();
+            edges.push_back(make_pair(a, b));
+        }
+        toggleEdgesClosure(edges);
+        return success();
+    } if (function == "checkEdgeStatus") {
+        int a;
+        int b;
+        stream >> a >> b;
+        if (stream.fail()) return failure();
+        if (locations.count(a) == 0) return failure();
+        if (locations.count(b) == 0) return failure();
+        string result = checkEdgeStatus(a, b);
+        cout << result << endl;
+        return true;
+    } if (function == "isConnected") {
+        int a;
+        int b;
+        stream >> a >> b;
+        if (stream.fail()) return failure();
+        if (locations.count(a) == 0) return failure();
+        if (locations.count(b) == 0) return failure();
+        if (isConnected(a, b)) return success();
+        return failure();
+    } if (function == "printShortestEdges") {
+        string STUDENT_ID;
+
+        stream >> STUDENT_ID;
+
+        if (stream.fail()) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID) == 0) return failure();
+        printShortestEdges(STUDENT_ID);
+        return true;
+    } if (function == "printStudentZone") {
+        string STUDENT_ID;
+
+        stream >> STUDENT_ID;
+
+        if (stream.fail()) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID) == 0) return failure();
+
+        int w = printStudentZone(STUDENT_ID);
+        cout << "Student Zone Cost For " << students[STUDENT_ID].name << ": " << w << endl;
+        return true;
+    } if (function == "verifySchedule") {
+        string STUDENT_ID;
+
+        stream >> STUDENT_ID;
+
+        if (stream.fail()) return failure();
+        if (checkID(STUDENT_ID)) return failure();
+        if (students.count(STUDENT_ID) == 0) return failure();
+
+        verifySchedule(STUDENT_ID);
+        return true;
+    }
+
+    return failure();
 }

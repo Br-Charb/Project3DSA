@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 #include <queue>
+#include <iomanip>
 
 using namespace std;
 
@@ -38,7 +39,7 @@ private:
     unordered_map<int, string> locations;
 
     //classCode -> times
-    unordered_map<string, vector<pair<int, int>>> times;
+    unordered_map<string, pair<int, int>> times;
 
     //struct for students
     struct student {
